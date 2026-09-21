@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Koi Growth Tracker</title>
+<style>
+*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;margin:0;background:#f4f6f8;color:#18212b}
+header{background:#123b5d;color:white;padding:22px 18px;position:sticky;top:0;z-index:5}
+header h1{margin:0;font-size:24px}header p{margin:5px 0 0;opacity:.85;font-size:13px}
+main{max-width:900px;margin:auto;padding:16px}.card{background:white;border-radius:16px;padding:18px;margin-bottom:16px;box-shadow:0 2px 10px #0000000d}
+button{border:0;border-radius:10px;padding:11px 15px;background:#1769aa;color:#fff;font-weight:600;cursor:pointer}button.secondary{background:#e8eef3;color:#17344b}button.danger{background:#b42318}
+input,select,textarea{width:100%;padding:11px;border:1px solid #ccd5dc;border-radius:9px;font-size:15px;background:white}
+label{font-size:13px;font-weight:600;display:block;margin:10px 0 5px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.koi-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.koi{border:1px solid #dde5eb;border-radius:13px;padding:14px;cursor:pointer}.koi:hover{background:#f7fafc}.koi h3{margin:0 0 5px}.muted{color:#66737d;font-size:13px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.space{display:flex;justify-content:space-between;gap:10px;align-items:center}.stat{font-size:22px;font-weight:700}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.statbox{background:#f5f8fa;padding:12px;border-radius:12px}.chartwrap{height:300px;position:relative}.chartwrap canvas{width:100%;height:100%}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px;border-bottom:1px solid #e4e8eb}th{color:#56636d}
+.hidden{display:none!important}.back{margin-bottom:12px}.small{font-size:12px}.notice{background:#eef7ff;border-left:4px solid #1769aa;padding:11px;border-radius:8px;font-size:13px}
+@media(max-width:600px){.grid,.stats{grid-template-columns:1fr}main{padding:10px}.card{padding:14px}.chartwrap{height:260px}}
+</style>
+</head>
+<body>
+<header><h1>🐟 Koi Growth Tracker</h1><p>Record length, weight and growth over time</p></header>
+<main id="app"></main>
+
+<script>
+const KEY="koiGrowthTracker_v1";
+let db=JSON.parse(localStorage.getItem(KEY)||'{"koi":[],"selected":null}');
+function save(){localStorage.setItem(KEY,JSON.stringify(db));}
+function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+function render(){
+ const app=document.getElementById("app");
+ if(db.selected){
+   const k=db.koi.find(x=>x.id===db.selected); if(!k){db.selected=null;return render();}
+   renderKoi(k); return;
+ }
+ app.innerHTML=`<div class="card"><div class="space"><div><h2 style="margin:0">My Koi</h2><div class="muted">Keep a long-term growth record for each fish.</div></div><button onclick="showAddKoi()">+ Add Koi</button></div></div>
+ <div id="koiList" class="koi-list"></div>
+ <div class="card"><div class="notice">Your data is stored in this browser/device. Use <b>Export Backup</b> regularly so you don't lose your records.</div><div class="row" style="margin-top:12px"><button class="secondary" onclick="exportData()">Export Backup</button><button class="secondary" onclick="importData()">Import Backup</button></div></div>`;
+ const list=document.getElementById("koiList");
+ if(!db.koi.length) list.innerHTML='<div class="card"><b>No koi yet.</b><div class="muted">Tap “Add Koi” to create your first fish.</div></div>';
+ db.koi.forEach(k=>{
+   const m=k.measurements.slice().sort((a,b)=>a.date.localeCompare(b.date)).at(-1);
+   list.innerHTML+=`<div class="koi" onclick="selectKoi('${k.id}')"><h3>${esc(k.name||"Unnamed Koi")}</h3><div class="muted">${esc(k.variety||"Variety not specified")}</div><p>${m?`<b>${m.length} cm</b> · <b>${m.weight} g</b><br><span class="muted">Last measured ${m.date}</span>`:"No measurements yet"}</p></div>`;
+ });
+}
+function showAddKoi(){
+ document.getElementById("app").innerHTML=`<div class="card"><button class="secondary back" onclick="render()">← Back</button><h2>Add Koi</h2>
+ <label>Name / ID</label><input id="name" placeholder="e.g. Aka Matsuba #1">
+ <label>Variety</label><input id="variety" placeholder="e.g. Aka Matsuba">
+ <label>Sex (optional)</label><select id="sex"><option value="">Unknown</option><option>Male</option><option>Female</option></select>
+ <label>Date acquired (optional)</label><input id="acquired" type="date">
+ <label>Notes</label><textarea id="notes" rows="3" placeholder="Any useful information"></textarea>
+ <button style="margin-top:12px" onclick="addKoi()">Save Koi</button></div>`;
+}
+function addKoi(){
+ const k={id:Date.now().toString(),name:document.getElementById("name").value.trim()||"Unnamed Koi",variety:document.getElementById("variety").value.trim(),sex:document.getElementById("sex").value,acquired:document.getElementById("acquired").value,notes:document.getElementById("notes").value,measurements:[]};
+ db.koi.push(k);db.selected=k.id;save();render();
+}
+function selectKoi(id){db.selected=id;render();}
+function renderKoi(k){
+ const ms=k.measurements.slice().sort((a,b)=>a.date.localeCompare(b.date));
+ const last=ms.at(-1), first=ms[0];
+ let growth="";
+ if(first&&last&&ms.length>1){
+   const days=(new Date(last.date)-new Date(first.date))/86400000;
+   growth=`<div class="statbox"><div class="muted">Weight change</div><div class="stat">${(last.weight-first.weight>=0?"+":"")}${(last.weight-first.weight).toFixed(0)} g</div></div>
+   <div class="statbox"><div class="muted">Length change</div><div class="stat">${(last.length-first.length>=0?"+":"")}${(last.length-first.length).toFixed(1)} cm</div></div>
+   <div class="statbox"><div class="muted">Days tracked</div><div class="stat">${Math.max(0,Math.round(days))}</div></div>`;
+ } else growth='<div class="notice">Add at least two measurements to calculate growth.</div>';
+ document.getElementById("app").innerHTML=`<div class="row back"><button class="secondary" onclick="db.selected=null;render()">← All Koi</button><button class="danger" onclick="deleteKoi('${k.id}')">Delete Koi</button></div>
+ <div class="card"><div class="space"><div><h2 style="margin:0">${esc(k.name)}</h2><div class="muted">${esc(k.variety||"Variety not specified")} ${k.sex?"· "+esc(k.sex):""}</div></div><button onclick="showMeasurement()">+ Measurement</button></div>
+ ${last?`<div class="stats" style="margin-top:15px"><div class="statbox"><div class="muted">Current length</div><div class="stat">${last.length} cm</div></div><div class="statbox"><div class="muted">Current weight</div><div class="stat">${last.weight} g</div></div><div class="statbox"><div class="muted">Measurements</div><div class="stat">${ms.length}</div></div></div>`:"<p class='muted'>No measurements recorded yet.</p>"}
+ </div>
+ <div class="card"><h3>Growth summary</h3><div class="stats">${growth}</div></div>
+ <div class="card"><h3>Weight over time</h3><div class="chartwrap"><canvas id="weightChart"></canvas></div></div>
+ <div class="card"><h3>Length over time</h3><div class="chartwrap"><canvas id="lengthChart"></canvas></div></div>
+ <div class="card"><h3>Measurements</h3>${ms.length?`<table><thead><tr><th>Date</th><th>Length</th><th>Weight</th><th>Temp</th><th></th></tr></thead><tbody>${ms.map(m=>`<tr><td>${m.date}</td><td>${m.length} cm</td><td>${m.weight} g</td><td>${m.temp?m.temp+"°C":"—"}</td><td><button class="danger small" onclick="deleteMeasurement('${m.id}')">Delete</button></td></tr>`).join("")}</tbody></table>`:"<div class='muted'>No measurements yet.</div>"}</div>
+ <div class="card"><h3>Notes</h3><div class="muted">${esc(k.notes||"No notes")}</div></div>`;
+ drawChart("weightChart",ms,"weight","Weight (g)");
+ drawChart("lengthChart",ms,"length","Length (cm)");
+}
+function showMeasurement(){
+ const today=new Date().toISOString().slice(0,10);
+ document.getElementById("app").innerHTML=`<div class="card"><button class="secondary back" onclick="render()">← Back</button><h2>Add Measurement</h2>
+ <label>Date</label><input id="mdate" type="date" value="${today}">
+ <div class="grid"><div><label>Length (cm)</label><input id="mlength" type="number" step="0.1" min="0" placeholder="e.g. 29.5"></div>
+ <div><label>Weight (g)</label><input id="mweight" type="number" step="1" min="0" placeholder="e.g. 330"></div></div>
+ <label>Water temperature (°C, optional)</label><input id="mtemp" type="number" step="0.1" placeholder="e.g. 21.6">
+ <label>Notes</label><textarea id="mnotes" rows="3" placeholder="Feeding, condition, etc."></textarea>
+ <button style="margin-top:12px" onclick="addMeasurement()">Save Measurement</button></div>`;
+}
+function addMeasurement(){
+ const date=document.getElementById("mdate").value,length=parseFloat(document.getElementById("mlength").value),weight=parseFloat(document.getElementById("mweight").value);
+ if(!date||!Number.isFinite(length)||!Number.isFinite(weight)){alert("Please enter a date, length and weight.");return;}
+ const k=db.koi.find(x=>x.id===db.selected);
+ k.measurements.push({id:Date.now().toString(),date,length,weight,temp:document.getElementById("mtemp").value,notes:document.getElementById("mnotes").value});
+ save();render();
+}
+function deleteMeasurement(id){
+ const k=db.koi.find(x=>x.id===db.selected); if(confirm("Delete this measurement?")){k.measurements=k.measurements.filter(m=>m.id!==id);save();render();}
+}
+function deleteKoi(id){
+ if(confirm("Delete this koi and all its measurements?")){db.koi=db.koi.filter(k=>k.id!==id);db.selected=null;save();render();}
+}
+function drawChart(id,ms,key,label){
+ const c=document.getElementById(id),ctx=c.getContext("2d"),dpr=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;c.width=w*dpr;c.height=h*dpr;ctx.scale(dpr,dpr);ctx.clearRect(0,0,w,h);
+ if(ms.length===0){ctx.fillStyle="#66737d";ctx.font="14px sans-serif";ctx.fillText("No data yet",20,30);return;}
+ const pad={l:48,r:18,t:20,b:42},pw=w-pad.l-pad.r,ph=h-pad.t-pad.b, vals=ms.map(m=>+m[key]), min=Math.min(...vals),max=Math.max(...vals),range=max-min||1;
+ ctx.strokeStyle="#dfe5ea";ctx.lineWidth=1;ctx.font="11px sans-serif";ctx.fillStyle="#66737d";
+ for(let i=0;i<=4;i++){let y=pad.t+ph*i/4,v=max-range*i/4;ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.fillText(v.toFixed(key==="weight"?0:1),5,y+4);}
+ ctx.strokeStyle="#1769aa";ctx.lineWidth=3;ctx.beginPath();
+ ms.forEach((m,i)=>{let x=pad.l+(ms.length===1?pw/2:pw*i/(ms.length-1)),y=pad.t+ph*(max-m[key])/range;i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();
+ ctx.fillStyle="#1769aa";ms.forEach((m,i)=>{let x=pad.l+(ms.length===1?pw/2:pw*i/(ms.length-1)),y=pad.t+ph*(max-m[key])/range;ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);ctx.fill();});
+ ctx.fillStyle="#66737d";ctx.fillText(label,5,12);ctx.fillText(ms[0].date,pad.l,h-15);let end=ms.at(-1).date,tw=ctx.measureText(end).width;ctx.fillText(end,w-pad.r-tw,h-15);
+}
+function exportData(){
+ const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="koi-growth-backup.json";a.click();URL.revokeObjectURL(a.href);
+}
+function importData(){
+ const inp=document.createElement("input");inp.type="file";inp.accept=".json";inp.onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const x=JSON.parse(r.result);if(!x.koi)throw 0;db=x;save();render();}catch{alert("That file is not a valid Koi Growth Tracker backup.");}};r.readAsText(f)};inp.click();
+}
+render();
+</script>
+</body>
+</html>
